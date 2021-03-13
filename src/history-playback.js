@@ -1,10 +1,12 @@
 class DateTimeHelper {
 	static toFriendlyKey(date) {
-		return date.toJSON().replace('.','$');
+		return date.getTime();//date.toJSON().replace('.','$');
 	}
 	
 	static fromFriendlyKey(friendlyKey) {
-		return new Date(friendlyKey.replace('$','.'));
+		var newDate = new Date();
+		newDate.setTime(friendlyKey);
+		return newDate;
 	}
 }
 
@@ -31,7 +33,7 @@ class HistoryPlayback {
 		}
 		
 		var previousKey = curTime;
-		for(var i = keys.length - 1; i > 0; i--) {
+		for(var i = keys.length - 1; i >= 0; i--) {
 			previousKey = DateTimeHelper.fromFriendlyKey(keys[i]);
 			if (previousKey < curTime) {
 				break;
@@ -63,14 +65,13 @@ class HistoryPlayback {
 	}
 	
 	static async onPreTokenUpdate(scene, tokenData, delta, object, userid) {
-		const curUser = game.users.get(userid);
-		// Get and update user's current time
-		let currentTime = HistoryPlayback.getUserCurrentTime(curUser);
-		//console.log("User current time: " + currentTime);
+		const curUser = game.user
+		// update user's current time
 		const now = new Date();
 		HistoryPlayback.setUserCurrentTime(curUser, now);
+		now.setTime(now.getTime() - 1); // set key 1ms in the past
 
-		// Get and update history of the token
+		// Get and update history
 		let historyObject = scene.getFlag("history-playback", "historyObject");
 		if ( historyObject == null ) { historyObject = {}; }
 		if (historyObject[DateTimeHelper.toFriendlyKey(now)] == null) { historyObject[DateTimeHelper.toFriendlyKey(now)] = []; }
@@ -81,15 +82,51 @@ class HistoryPlayback {
 			"from_y": tokenData.y,
 			"to_x": delta["x"] != null ? delta["x"] : tokenData.x, 
 			"to_y": delta["y"] != null ? delta["y"] : tokenData.y 
-			});
+		});
 		console.log("Storing time:" + DateTimeHelper.toFriendlyKey(now) + " id:" + tokenData._id + " x:" + tokenData.x + " y:" + tokenData.y);
 		await scene.setFlag("history-playback", "historyObject", $.extend(true, {}, historyObject));
 	}
 	
-	static onVelocityForwardButtonPress(object) {
-		let currentVelocity = object.getFlag('history-playback', 'velocity');
-		if ( currentVelocity == null ) { currentVelocity = 0; }
-		object.setFlag('history-playback', 'velocity', currentVelocity + 1);
+	static async onCreateChatMessage(chatMessage, options, userid) {
+		const curUser = game.user
+		const scene = game.scenes.viewed;
+		// update user's current time
+		const now = new Date();
+		HistoryPlayback.setUserCurrentTime(curUser, now);
+		now.setTime(now.getTime() - 1); // set key 1ms in the past
+
+		// Get and update history
+		let historyObject = scene.getFlag("history-playback", "historyObject");
+		if ( historyObject == null ) { historyObject = {}; }
+		if (historyObject[DateTimeHelper.toFriendlyKey(now)] == null) { historyObject[DateTimeHelper.toFriendlyKey(now)] = []; }
+		historyObject[DateTimeHelper.toFriendlyKey(now)].push({
+			"type": "chatMessage", 
+			"messageid": chatMessage.id
+		});
+		console.log("Storing time:" + DateTimeHelper.toFriendlyKey(now) + " id:" + chatMessage.id);
+		await scene.setFlag("history-playback", "historyObject", $.extend(true, {}, historyObject));
+	}
+
+	static parseHistoryObject(curHistory) {
+		for (var i = 0; i < curHistory.length; i++) {
+			if (curHistory[i]["type"] == "tokenMove") {
+				let tokenIndex = canvas.tokens.placeables.findIndex((element) => element.id == curHistory[i]["tokenid"]);
+				if (tokenIndex >= 0) {
+					// 0.8 use game.viewed.tokens.entries
+					let token = canvas.tokens.placeables[tokenIndex];
+					token.position.set(curHistory[i]["from_x"], curHistory[i]["from_y"]);
+					console.log("id:" + curHistory[i]["tokenid"] + " x:" + curHistory[i]["from_x"] + " y:" + curHistory[i]["from_y"]);
+				}
+			} else if (curHistory[i]["type"] == "chatMessage") {
+				const message = game.messages.get(curHistory[i]["messageid"]);
+				if (message) {
+					const token = canvas.tokens.get(message.data.speaker.token);
+					if ( token ) canvas.hud.bubbles.say(token, message.data.content, {
+						emote: message.data.type === CONST.CHAT_MESSAGE_TYPES.EMOTE
+					});
+				}
+			}
+		}
 	}
 	
 	static stepHistoryBack() {
@@ -99,23 +136,14 @@ class HistoryPlayback {
 		game.settings.set('history-playback','viewing-history', true);
 		var nextKey = HistoryPlayback.getPreviousTime(currentTime, curScene);
 		
-		if (nextKey.getTime() == currentTime.getTime()) { 
+		if (nextKey.getTime() >= currentTime.getTime()) { 
+			HistoryPlayback.setUserCurrentTime(curUser, new Date(nextKey));
 			console.log("No History to rewind");
 			return; 
 		}
 		let historyObject = curScene.getFlag("history-playback", "historyObject");
 		const curHistory = historyObject[DateTimeHelper.toFriendlyKey(nextKey)];
-		for (var i = 0; i < curHistory.length; i++) {
-			if (curHistory[i]["type"] == "tokenMove") {
-				let tokenIndex = canvas.tokens.placeables.findIndex((element) => element.id == curHistory[i]["tokenid"]);
-				if (tokenIndex >= 0) {
-					// 0.8 use game.viewed.tokens.entries
-					let token = canvas.tokens.placeables[tokenIndex];
-					token.position.set(curHistory[i]["from_x"], curHistory[i]["from_y"]);
-					console.log("Loading time:" + nextKey + " id:" + curHistory[i]["tokenid"] + " x:" + curHistory[i]["from_x"] + " y:" + curHistory[i]["from_y"]);
-				}
-			}
-		}
+		HistoryPlayback.parseHistoryObject(curHistory);
 		HistoryPlayback.setUserCurrentTime(curUser, new Date(nextKey));
 	}
 	
@@ -126,24 +154,15 @@ class HistoryPlayback {
 		game.settings.set('history-playback','viewing-history', true);
 		var nextKey = HistoryPlayback.getNextTime(currentTime, curScene);
 		
-		if (nextKey.getTime() == currentTime.getTime()) { 
+		if (currentTime.getTime() >= nextKey.getTime() ) { 
 			console.log("At newest point in History");
 			game.settings.set('history-playback','viewing-history', false);
 			return; 
 		}
 		let historyObject = curScene.getFlag("history-playback", "historyObject");
 		const curHistory = historyObject[DateTimeHelper.toFriendlyKey(nextKey)];
-		for (var i = 0; i < curHistory.length; i++) {
-			if (curHistory[i]["type"] == "tokenMove") {
-				let tokenIndex = canvas.tokens.placeables.findIndex((element) => element.id == curHistory[i]["tokenid"]);
-				if (tokenIndex >= 0) {
-					// 0.8 use game.viewed.tokens.entries
-					let token = canvas.tokens.placeables[tokenIndex];
-					token.position.set(curHistory[i]["to_x"], curHistory[i]["to_y"]);
-					console.log("Loading time:" + nextKey + " id:" + curHistory[i]["tokenid"] + " x:" + curHistory[i]["to_x"] + " y:" + curHistory[i]["to_y"]);
-				}
-			}
-		}
+		HistoryPlayback.parseHistoryObject(curHistory);
+		nextKey.setTime(nextKey.getTime() + 1); // set time to 1ms after key
 		HistoryPlayback.setUserCurrentTime(curUser, new Date(nextKey));
 	}
 	
@@ -181,6 +200,7 @@ class HistoryPlayback {
 
 Hooks.on('ready', () => {
 	Hooks.on('preUpdateToken', HistoryPlayback.onPreTokenUpdate);
+	Hooks.on('createChatMessage', HistoryPlayback.onCreateChatMessage);
 });
 
 Hooks.once("init", () => {
