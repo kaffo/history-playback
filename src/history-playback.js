@@ -22,6 +22,19 @@ class HistoryPlayback {
 		curUser.setFlag("history-playback","current_time", DateTimeHelper.toFriendlyKey(curDateTime));
 	}
 	
+	static getEarliestTime(scene) {
+		let historyObject = scene.getFlag("history-playback", "historyObject");
+		if ( historyObject == null ) { historyObject = {}; }
+		let keys = Object.keys(historyObject);
+		
+		keys.sort();
+		if (keys.length <= 0) {
+			return curTime;
+		}
+		
+		return DateTimeHelper.fromFriendlyKey(keys[0]);
+	}
+	
 	static getPreviousTime(curTime, scene) {
 		let historyObject = scene.getFlag("history-playback", "historyObject");
 		if ( historyObject == null ) { historyObject = {}; }
@@ -137,6 +150,31 @@ class HistoryPlayback {
 		}
 	}
 	
+	static rewindToTime(targetTime) {
+		const curUser = game.user;
+		const curScene = game.scenes.viewed;
+		let curTime = HistoryPlayback.getPreviousTime(new Date(), curScene);;
+		let historyObject = curScene.getFlag("history-playback", "historyObject");
+		let earliestKey = HistoryPlayback.getEarliestTime(curScene);
+		targetTime.getTime() > earliestKey.getTime() ? targetTime = targetTime : targetTime = earliestKey;
+		console.log("Rewinding history to: " + targetTime.toString() );
+		
+		var workDone = false;
+		while( targetTime.getTime() < curTime.getTime() ) {
+			curTime = HistoryPlayback.getPreviousTime(curTime, curScene);
+			
+			const curHistory = historyObject[DateTimeHelper.toFriendlyKey(curTime)];
+			HistoryPlayback.parseHistoryObject(curHistory, true);
+			if (curHistory[0]["type"] == "tokenMove") {
+				var token = canvas.tokens.get(curHistory[0]["tokenid"]);
+				token._hover = true;
+			}
+			workDone = true;
+		}
+		game.settings.set('history-playback','viewing-history', workDone);
+			
+	}
+	
 	static stepHistoryBack() {
 		const curUser = game.user;
 		const currentTime = HistoryPlayback.getUserCurrentTime(curUser);
@@ -150,6 +188,10 @@ class HistoryPlayback {
 			return; 
 		}
 		let historyObject = curScene.getFlag("history-playback", "historyObject");
+		if ( historyObject == null ) {
+			game.settings.set('history-playback','viewing-history', false);
+			return; 
+		}
 		const curHistory = historyObject[DateTimeHelper.toFriendlyKey(nextKey)];
 		HistoryPlayback.parseHistoryObject(curHistory, true);
 		HistoryPlayback.setUserCurrentTime(curUser, new Date(nextKey));
@@ -163,6 +205,10 @@ class HistoryPlayback {
 		var nextKey = HistoryPlayback.getNextTime(currentTime, curScene);
 		
 		let historyObject = curScene.getFlag("history-playback", "historyObject");
+		if ( historyObject == null ) {
+			game.settings.set('history-playback','viewing-history', false);
+			return; 
+		}
 		const curHistory = historyObject[DateTimeHelper.toFriendlyKey(nextKey)];
 		if (currentTime.getTime() >= nextKey.getTime() ) { 
 			console.log("At newest point in History");
@@ -176,31 +222,28 @@ class HistoryPlayback {
 		}
 	}
 	
-	static moveTokenLastPos(token) {
-		const scene = game.scenes.viewed;
-		let historyObject = scene.getFlag("history-playback", "historyObject");
-		if ( historyObject == null ) { historyObject = {}; }
-		let keys = Object.keys(historyObject);
-		const lastHistory = historyObject[keys[0]];
-		if ( token.id == lastHistory[0]["tokenid"] ) {
-			let options = {"animate": false};
-			//token.setPosition(lastHistory[0]["x"], lastHistory[0]["y"], options);
-			//token.position.set(lastHistory[0]["x"], lastHistory[0]["y"]);
-		}
-	}
-	
 	static onViewHistorySettingChange(newValue) {
 		var settingsMessage;
 		if (newValue) {
-			// Historical Data
+			$(".history-status-text").text("Viewing Historical Game");
 			$("body.vtt").css("pointer-events", "none"); // temp hack
 			settingsMessage = "Client now viewing history"
 		} else {
 			// Live
+			$(".history-status-text").text("Viewing Live Game");
 			$("body.vtt").css("pointer-events", "auto"); // temp hack
 			settingsMessage = "Client now viewing live game";
 		}
 		console.log(settingsMessage);
+	}
+	
+	static onHistoryControlClick(clickedControl) {
+		var id = clickedControl.prop('id');
+		if ( id === 'history-step-back' ) {
+			HistoryPlayback.stepHistoryBack();
+		} else if ( id === 'history-step-forward' ) { 
+			HistoryPlayback.stepHistoryForward();
+		}
 	}
 	
 	static deleteFlagOn(object, flag) {
@@ -211,6 +254,24 @@ class HistoryPlayback {
 Hooks.on('ready', () => {
 	Hooks.on('preUpdateToken', HistoryPlayback.onPreTokenUpdate);
 	Hooks.on('createChatMessage', HistoryPlayback.onCreateChatMessage);
+	HistoryPlayback.rewindToTime(HistoryPlayback.getUserCurrentTime(game.user));
+	let stepBackButton = `<div id="history-step-back" class="history-control" title="Step Back History" data-tool="stepback"><i class="fas fa-caret-left"></i></div>`;
+	let stepForwardButton = `<div id="history-step-forward" class="history-control" title="Step Back Forward" data-tool="stepback"><i class="fas fa-caret-right"></i></div>`;
+	let historyButtons = `${stepBackButton}${stepForwardButton}`;
+	let historyControlDiv = `<div class="history-control-div flexrow">${historyButtons}</div>`;
+	let historyTopBar = `<p class="history-status-text">Viewing Live Game</p>`;
+	let historyParentDiv = $(`<div class="app history-div flexcol">${historyTopBar}${historyControlDiv}</div>`);
+	$('body.vtt').append(historyParentDiv);
+	$( '.history-control' ).hover(
+	  function() {
+		$( this ).addClass( "active" );
+	  }, function() {
+		$( this ).removeClass( "active" );
+	  }
+	);
+	$('.history-control').on('click', function () {
+		HistoryPlayback.onHistoryControlClick($(this));
+	});
 });
 
 Hooks.once("init", () => {
