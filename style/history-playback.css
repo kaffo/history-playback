@@ -32,7 +32,7 @@
     line-height: 36px;
     background: rgba(0, 0, 0, 0.5);
     box-shadow: 0 0 10px #000;
-    margin: 0 0 8px;
+    margin: 2px 2px 8px;
     color: #BBB;
     text-align: center;
     border: 1px solid #000;
@@ -45,4 +45,8 @@
     border: 1px solid red;
     border-bottom: 1px solid #ff6400;
     box-shadow: 0 0 10px #ff6400;
+}
+
+.history-no-mouse {
+	pointer-events: none;
 }

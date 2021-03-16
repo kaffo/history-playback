@@ -85,7 +85,7 @@ class HistoryPlayback {
 		now.setTime(now.getTime() - 1); // set key 1ms in the past
 
 		// Get and update history
-		let historyObject = scene.getFlag("history-playback", "historyObject");
+		let historyObject = await scene.getFlag("history-playback", "historyObject");
 		if ( historyObject == null ) { historyObject = {}; }
 		if (historyObject[DateTimeHelper.toFriendlyKey(now)] == null) { historyObject[DateTimeHelper.toFriendlyKey(now)] = []; }
 		historyObject[DateTimeHelper.toFriendlyKey(now)].push({
@@ -113,7 +113,7 @@ class HistoryPlayback {
 		now.setTime(now.getTime() - 1); // set key 1ms in the past
 
 		// Get and update history
-		let historyObject = scene.getFlag("history-playback", "historyObject");
+		let historyObject = await scene.getFlag("history-playback", "historyObject");
 		if ( historyObject == null ) { historyObject = {}; }
 		if (historyObject[DateTimeHelper.toFriendlyKey(now)] == null) { historyObject[DateTimeHelper.toFriendlyKey(now)] = []; }
 		historyObject[DateTimeHelper.toFriendlyKey(now)].push({
@@ -167,7 +167,6 @@ class HistoryPlayback {
 			HistoryPlayback.parseHistoryObject(curHistory, true);
 			if (curHistory[0]["type"] == "tokenMove") {
 				var token = canvas.tokens.get(curHistory[0]["tokenid"]);
-				token._hover = true;
 			}
 			workDone = true;
 		}
@@ -222,16 +221,34 @@ class HistoryPlayback {
 		}
 	}
 	
+	static modifyClassOnChildren(classToAdd, item, removeClass = false) {
+		removeClass ? item.removeClass(classToAdd) : item.addClass(classToAdd);
+		var children = item.children();
+		if (children.length > 0) {
+			children.each(function () {
+				HistoryPlayback.modifyClassOnChildren(classToAdd, $(this), removeClass);
+			});
+		}
+	}
+	
 	static onViewHistorySettingChange(newValue) {
 		var settingsMessage;
 		if (newValue) {
 			$(".history-status-text").text("Viewing Historical Game");
-			$("body.vtt").css("pointer-events", "none"); // temp hack
+			//HistoryPlayback.modifyClassOnChildren("history-no-mouse", $("body.vtt"), false);
+			$("body.vtt").css("pointer-events", "none");
+			let tokenRefresh = function() { };
+			let tokenUpdate = function() { };
+			canvas.tokens.placeables.forEach(function (token) { token.refresh = tokenRefresh; token._onUpdate = tokenUpdate });
 			settingsMessage = "Client now viewing history"
 		} else {
 			// Live
 			$(".history-status-text").text("Viewing Live Game");
-			$("body.vtt").css("pointer-events", "auto"); // temp hack
+			//HistoryPlayback.modifyClassOnChildren("history-no-mouse", $("body.vtt"), true);
+			$("body.vtt").css("pointer-events", "auto");
+			let tokenRefresh = new Token().refresh;
+			let tokenUpdate = new Token()._onUpdate;
+			canvas.tokens.placeables.forEach(function (token) { token.refresh = tokenRefresh; token._onUpdate = tokenUpdate });
 			settingsMessage = "Client now viewing live game";
 		}
 		console.log(settingsMessage);
@@ -254,6 +271,7 @@ class HistoryPlayback {
 Hooks.on('ready', () => {
 	Hooks.on('preUpdateToken', HistoryPlayback.onPreTokenUpdate);
 	Hooks.on('createChatMessage', HistoryPlayback.onCreateChatMessage);
+	
 	HistoryPlayback.rewindToTime(HistoryPlayback.getUserCurrentTime(game.user));
 	let stepBackButton = `<div id="history-step-back" class="history-control" title="Step Back History" data-tool="stepback"><i class="fas fa-caret-left"></i></div>`;
 	let stepForwardButton = `<div id="history-step-forward" class="history-control" title="Step Back Forward" data-tool="stepback"><i class="fas fa-caret-right"></i></div>`;
