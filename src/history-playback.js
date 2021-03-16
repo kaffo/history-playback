@@ -77,6 +77,31 @@ class HistoryPlayback {
 		return nextKey;
 	}
 	
+	static async onAppReady() {
+		Hooks.on('preUpdateToken', HistoryPlayback.onPreTokenUpdate);
+		Hooks.on('createChatMessage', HistoryPlayback.onCreateChatMessage);
+		
+		var lastUserTime = await HistoryPlayback.getUserCurrentTime(game.user)
+		HistoryPlayback.rewindToTime(lastUserTime);
+		let stepBackButton = `<div id="history-step-back" class="history-control" title="Step Back History" data-tool="stepback"><i class="fas fa-caret-left"></i></div>`;
+		let stepForwardButton = `<div id="history-step-forward" class="history-control" title="Step Back Forward" data-tool="stepback"><i class="fas fa-caret-right"></i></div>`;
+		let historyButtons = `${stepBackButton}${stepForwardButton}`;
+		let historyControlDiv = `<div class="history-control-div flexrow">${historyButtons}</div>`;
+		let historyTopBar = `<p class="history-status-text">Viewing Live Game</p>`;
+		let historyParentDiv = $(`<div class="app history-div flexcol">${historyTopBar}${historyControlDiv}</div>`);
+		$('body.vtt').append(historyParentDiv);
+		$( '.history-control' ).hover(
+		  function() {
+			$( this ).addClass( "active" );
+		  }, function() {
+			$( this ).removeClass( "active" );
+		  }
+		);
+		$('.history-control').on('click', function () {
+			HistoryPlayback.onHistoryControlClick($(this));
+		});
+	}
+	
 	static async onPreTokenUpdate(scene, tokenData, delta, object, userid) {
 		const curUser = game.user
 		// update user's current time
@@ -136,6 +161,7 @@ class HistoryPlayback {
 					backwards ? x = curHistory[i]["from_x"] : x = curHistory[i]["to_x"];
 					backwards ? y = curHistory[i]["from_y"] : y = curHistory[i]["to_y"];
 					token.position.set(x, y);
+					canvas.animatePan({x: x, y: y, scale: Math.max(1, canvas.stage.scale.x), duration: 500});
 					console.log("id:" + curHistory[i]["tokenid"] + " x:" + x + " y:" + y);
 				}
 			} else if (curHistory[i]["type"] == "chatMessage") {
@@ -171,7 +197,6 @@ class HistoryPlayback {
 			workDone = true;
 		}
 		await game.settings.set('history-playback','viewing-history', workDone);
-			
 	}
 	
 	static async stepHistoryBack() {
@@ -269,29 +294,7 @@ class HistoryPlayback {
 	}
 }
 
-Hooks.on('ready', () => {
-	Hooks.on('preUpdateToken', HistoryPlayback.onPreTokenUpdate);
-	Hooks.on('createChatMessage', HistoryPlayback.onCreateChatMessage);
-	
-	HistoryPlayback.rewindToTime(HistoryPlayback.getUserCurrentTime(game.user));
-	let stepBackButton = `<div id="history-step-back" class="history-control" title="Step Back History" data-tool="stepback"><i class="fas fa-caret-left"></i></div>`;
-	let stepForwardButton = `<div id="history-step-forward" class="history-control" title="Step Back Forward" data-tool="stepback"><i class="fas fa-caret-right"></i></div>`;
-	let historyButtons = `${stepBackButton}${stepForwardButton}`;
-	let historyControlDiv = `<div class="history-control-div flexrow">${historyButtons}</div>`;
-	let historyTopBar = `<p class="history-status-text">Viewing Live Game</p>`;
-	let historyParentDiv = $(`<div class="app history-div flexcol">${historyTopBar}${historyControlDiv}</div>`);
-	$('body.vtt').append(historyParentDiv);
-	$( '.history-control' ).hover(
-	  function() {
-		$( this ).addClass( "active" );
-	  }, function() {
-		$( this ).removeClass( "active" );
-	  }
-	);
-	$('.history-control').on('click', function () {
-		HistoryPlayback.onHistoryControlClick($(this));
-	});
-});
+Hooks.on('ready', HistoryPlayback.onAppReady);
 
 Hooks.once("init", () => {
 	game.settings.register('history-playback', 'viewing-history', {
