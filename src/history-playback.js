@@ -12,18 +12,18 @@ class DateTimeHelper {
 
 //CONFIG.debug.hooks = true
 class HistoryPlayback {
-	static getUserCurrentTime(curUser) {
-		let currentTime = curUser.getFlag("history-playback","current_time")
+	static async getUserCurrentTime(curUser) {
+		let currentTime = await curUser.getFlag("history-playback","current_time")
 		currentTime == null ? currentTime = new Date() : currentTime = DateTimeHelper.fromFriendlyKey(currentTime);
 		return currentTime;
 	}
 	
-	static setUserCurrentTime(curUser, curDateTime) {
-		curUser.setFlag("history-playback","current_time", DateTimeHelper.toFriendlyKey(curDateTime));
+	static async setUserCurrentTime(curUser, curDateTime) {
+		await curUser.setFlag("history-playback","current_time", DateTimeHelper.toFriendlyKey(curDateTime));
 	}
 	
-	static getEarliestTime(scene) {
-		let historyObject = scene.getFlag("history-playback", "historyObject");
+	static async getEarliestTime(scene) {
+		let historyObject = await scene.getFlag("history-playback", "historyObject");
 		if ( historyObject == null ) { historyObject = {}; }
 		let keys = Object.keys(historyObject);
 		
@@ -35,8 +35,8 @@ class HistoryPlayback {
 		return DateTimeHelper.fromFriendlyKey(keys[0]);
 	}
 	
-	static getPreviousTime(curTime, scene) {
-		let historyObject = scene.getFlag("history-playback", "historyObject");
+	static async getPreviousTime(curTime, scene) {
+		let historyObject = await scene.getFlag("history-playback", "historyObject");
 		if ( historyObject == null ) { historyObject = {}; }
 		let keys = Object.keys(historyObject);
 		
@@ -56,8 +56,8 @@ class HistoryPlayback {
 		return previousKey;
 	}
 	
-	static getNextTime(curTime, scene) {
-		let historyObject = scene.getFlag("history-playback", "historyObject");
+	static async getNextTime(curTime, scene) {
+		let historyObject = await scene.getFlag("history-playback", "historyObject");
 		if ( historyObject == null ) { historyObject = {}; }
 		let keys = Object.keys(historyObject);
 		
@@ -81,7 +81,7 @@ class HistoryPlayback {
 		const curUser = game.user
 		// update user's current time
 		const now = new Date();
-		HistoryPlayback.setUserCurrentTime(curUser, now);
+		await HistoryPlayback.setUserCurrentTime(curUser, now);
 		now.setTime(now.getTime() - 1); // set key 1ms in the past
 
 		// Get and update history
@@ -109,7 +109,7 @@ class HistoryPlayback {
 		
 		// update user's current time
 		const now = new Date();
-		HistoryPlayback.setUserCurrentTime(curUser, now);
+		await HistoryPlayback.setUserCurrentTime(curUser, now);
 		now.setTime(now.getTime() - 1); // set key 1ms in the past
 
 		// Get and update history
@@ -150,18 +150,18 @@ class HistoryPlayback {
 		}
 	}
 	
-	static rewindToTime(targetTime) {
+	static async rewindToTime(targetTime) {
 		const curUser = game.user;
 		const curScene = game.scenes.viewed;
-		let curTime = HistoryPlayback.getPreviousTime(new Date(), curScene);;
-		let historyObject = curScene.getFlag("history-playback", "historyObject");
-		let earliestKey = HistoryPlayback.getEarliestTime(curScene);
+		let curTime = await HistoryPlayback.getPreviousTime(new Date(), curScene);;
+		let historyObject = await curScene.getFlag("history-playback", "historyObject");
+		let earliestKey = await HistoryPlayback.getEarliestTime(curScene);
 		targetTime.getTime() > earliestKey.getTime() ? targetTime = targetTime : targetTime = earliestKey;
 		console.log("Rewinding history to: " + targetTime.toString() );
 		
 		var workDone = false;
 		while( targetTime.getTime() < curTime.getTime() ) {
-			curTime = HistoryPlayback.getPreviousTime(curTime, curScene);
+			curTime = await HistoryPlayback.getPreviousTime(curTime, curScene);
 			
 			const curHistory = historyObject[DateTimeHelper.toFriendlyKey(curTime)];
 			HistoryPlayback.parseHistoryObject(curHistory, true);
@@ -170,54 +170,55 @@ class HistoryPlayback {
 			}
 			workDone = true;
 		}
-		game.settings.set('history-playback','viewing-history', workDone);
+		await game.settings.set('history-playback','viewing-history', workDone);
 			
 	}
 	
-	static stepHistoryBack() {
+	static async stepHistoryBack() {
 		const curUser = game.user;
-		const currentTime = HistoryPlayback.getUserCurrentTime(curUser);
+		const currentTime = await HistoryPlayback.getUserCurrentTime(curUser);
 		const curScene = game.scenes.viewed;
-		game.settings.set('history-playback','viewing-history', true);
-		var nextKey = HistoryPlayback.getPreviousTime(currentTime, curScene);
+		await game.settings.set('history-playback','viewing-history', true);
+		var nextKey = await HistoryPlayback.getPreviousTime(currentTime, curScene);
 		
 		if (nextKey.getTime() >= currentTime.getTime()) { 
-			HistoryPlayback.setUserCurrentTime(curUser, new Date(nextKey));
 			console.log("No History to rewind");
 			return; 
+		} else {
+			let historyObject = await curScene.getFlag("history-playback", "historyObject");
+			if ( historyObject == null ) {
+				await game.settings.set('history-playback','viewing-history', false);
+				return; 
+			}
+			const curHistory = historyObject[DateTimeHelper.toFriendlyKey(nextKey)];
+			HistoryPlayback.parseHistoryObject(curHistory, true);
+			nextKey.setTime(nextKey.getTime() - 1); // set time to 1ms before key
+			await HistoryPlayback.setUserCurrentTime(curUser, new Date(nextKey));
 		}
-		let historyObject = curScene.getFlag("history-playback", "historyObject");
-		if ( historyObject == null ) {
-			game.settings.set('history-playback','viewing-history', false);
-			return; 
-		}
-		const curHistory = historyObject[DateTimeHelper.toFriendlyKey(nextKey)];
-		HistoryPlayback.parseHistoryObject(curHistory, true);
-		HistoryPlayback.setUserCurrentTime(curUser, new Date(nextKey));
 	}
 	
-	static stepHistoryForward() {
+	static async stepHistoryForward() {
 		const curUser = game.user;
-		const currentTime = HistoryPlayback.getUserCurrentTime(curUser);
+		const currentTime = await HistoryPlayback.getUserCurrentTime(curUser);
 		const curScene = game.scenes.viewed;
-		game.settings.set('history-playback','viewing-history', true);
-		var nextKey = HistoryPlayback.getNextTime(currentTime, curScene);
+		await game.settings.set('history-playback','viewing-history', true);
+		var nextKey = await HistoryPlayback.getNextTime(currentTime, curScene);
 		
-		let historyObject = curScene.getFlag("history-playback", "historyObject");
+		let historyObject = await curScene.getFlag("history-playback", "historyObject");
 		if ( historyObject == null ) {
 			game.settings.set('history-playback','viewing-history', false);
 			return; 
 		}
-		const curHistory = historyObject[DateTimeHelper.toFriendlyKey(nextKey)];
 		if (currentTime.getTime() >= nextKey.getTime() ) { 
 			console.log("At newest point in History");
-			HistoryPlayback.parseHistoryObject(curHistory, false);
-			game.settings.set('history-playback','viewing-history', false);
+			await HistoryPlayback.setUserCurrentTime(curUser, new Date()); // Set time to now
+			await game.settings.set('history-playback','viewing-history', false);
 			return; 
 		} else {
-			HistoryPlayback.parseHistoryObject(curHistory, true);
+			const curHistory = historyObject[DateTimeHelper.toFriendlyKey(nextKey)];
+			HistoryPlayback.parseHistoryObject(curHistory, false);
 			nextKey.setTime(nextKey.getTime() + 1); // set time to 1ms after key
-			HistoryPlayback.setUserCurrentTime(curUser, new Date(nextKey));
+			await HistoryPlayback.setUserCurrentTime(curUser, new Date(nextKey));
 		}
 	}
 	
@@ -263,8 +264,8 @@ class HistoryPlayback {
 		}
 	}
 	
-	static deleteFlagOn(object, flag) {
-		object.unsetFlag("history-playback", flag);
+	static async deleteFlagOn(object, flag) {
+		await object.unsetFlag("history-playback", flag);
 	}
 }
 
