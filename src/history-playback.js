@@ -172,7 +172,11 @@ class HistoryPlayback {
 						canvas.hud.bubbles.say(token, message.data.content, {
 							emote: message.data.type === CONST.CHAT_MESSAGE_TYPES.EMOTE
 						});
-						$('li[data-message-id="' + message.id + '"]').addClass( "history-message-active" );
+						var messageHTML = $('li[data-message-id="' + message.id + '"]');
+						messageHTML.addClass( "history-message-active" );
+						if (messageHTML.length > 0) {
+							messageHTML.get(0).scrollIntoView()
+						}
 					}
 					
 				}
