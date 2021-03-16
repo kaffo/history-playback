@@ -168,9 +168,13 @@ class HistoryPlayback {
 				const message = game.messages.get(curHistory[i]["messageid"]);
 				if (message) {
 					const token = canvas.tokens.get(message.data.speaker.token);
-					if ( token ) canvas.hud.bubbles.say(token, message.data.content, {
-						emote: message.data.type === CONST.CHAT_MESSAGE_TYPES.EMOTE
-					});
+					if ( token ) {
+						canvas.hud.bubbles.say(token, message.data.content, {
+							emote: message.data.type === CONST.CHAT_MESSAGE_TYPES.EMOTE
+						});
+						$('li[data-message-id="' + message.id + '"]').addClass( "history-message-active" );
+					}
+					
 				}
 			}
 		}
@@ -204,8 +208,11 @@ class HistoryPlayback {
 		const currentTime = await HistoryPlayback.getUserCurrentTime(curUser);
 		const curScene = game.scenes.viewed;
 		await game.settings.set('history-playback','viewing-history', true);
-		var nextKey = await HistoryPlayback.getPreviousTime(currentTime, curScene);
 		
+		// Reset chat messages
+		$('.history-message-active').removeClass( "history-message-active" );
+		
+		var nextKey = await HistoryPlayback.getPreviousTime(currentTime, curScene);
 		if (nextKey.getTime() >= currentTime.getTime()) { 
 			console.log("No History to rewind");
 			return; 
@@ -227,8 +234,11 @@ class HistoryPlayback {
 		const currentTime = await HistoryPlayback.getUserCurrentTime(curUser);
 		const curScene = game.scenes.viewed;
 		await game.settings.set('history-playback','viewing-history', true);
-		var nextKey = await HistoryPlayback.getNextTime(currentTime, curScene);
 		
+		// Reset chat messages
+		$('.history-message-active').removeClass( "history-message-active" );
+		
+		var nextKey = await HistoryPlayback.getNextTime(currentTime, curScene);
 		let historyObject = await curScene.getFlag("history-playback", "historyObject");
 		if ( historyObject == null ) {
 			game.settings.set('history-playback','viewing-history', false);
