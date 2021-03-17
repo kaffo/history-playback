@@ -117,7 +117,7 @@ class HistoryPlayback {
 		let skipForwardButton = `<div id="history-skip-forward" class="history-control" title="Skip Forward History" data-tool="skipforward"><i class="fas fa-caret-right"></i><i class="fas fa-caret-right"></i></div>`;
 		let historyButtons = `${skipBackButton}${stepBackButton}${stepForwardButton}${skipForwardButton}`;
 		let historyControlDiv = `<div class="history-control-div flexrow">${historyButtons}</div>`;
-		let historyTopBar = `<p class="history-status-text">Viewing Live Game</p>`;
+		let historyTopBar = `<p class="history-status-text">Viewing Live Game<br>-</p>`;
 		let historyParentDiv = $(`<div class="app history-div flexcol">${historyTopBar}${historyControlDiv}</div>`);
 		$('body.vtt').append(historyParentDiv);
 		$( '.history-control' ).hover(
@@ -330,10 +330,11 @@ class HistoryPlayback {
 		}
 	}
 	
-	static onViewHistorySettingChange(newValue) {
+	static async onViewHistorySettingChange(newValue) {
 		var settingsMessage;
 		if (newValue) {
-			$(".history-status-text").text("Viewing Historical Game");
+			let curUserTime = await HistoryPlayback.getUserCurrentTime(game.user);
+			$(".history-status-text").html("Viewing Historical Game<br>" + curUserTime.toLocaleString());
 			//HistoryPlayback.modifyClassOnChildren("history-no-mouse", $("body.vtt"), false);
 			$("body.vtt").css("pointer-events", "none");
 			let tokenRefresh = function() { };
@@ -342,7 +343,7 @@ class HistoryPlayback {
 			settingsMessage = "Client now viewing history"
 		} else {
 			// Live
-			$(".history-status-text").text("Viewing Live Game");
+			$(".history-status-text").html("Viewing Live Game<br>-");
 			//HistoryPlayback.modifyClassOnChildren("history-no-mouse", $("body.vtt"), true);
 			$("body.vtt").css("pointer-events", "auto");
 			let tokenRefresh = new Token().refresh;
@@ -383,8 +384,8 @@ Hooks.once("init", () => {
 	  config: false,
 	  type: Boolean,
 	  default: false,
-	  onChange: value => {
-		HistoryPlayback.onViewHistorySettingChange(value);
+	  onChange: async function(value) {
+		await HistoryPlayback.onViewHistorySettingChange(value);
 	  }
 	});
 	game.settings.register('history-playback', 'max-history', {
