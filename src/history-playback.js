@@ -56,6 +56,19 @@ class HistoryPlayback {
 		return previousKey;
 	}
 	
+	static async getLastTime(scene) {
+		let historyObject = await scene.getFlag("history-playback", "historyObject");
+		if ( historyObject == null ) { historyObject = {}; }
+		let keys = Object.keys(historyObject);
+		
+		keys.sort();
+		if (keys.length <= 0) {
+			return curTime;
+		}
+		
+		return DateTimeHelper.fromFriendlyKey(keys[keys.length - 1]);
+	}
+	
 	static async getNextTime(curTime, scene) {
 		let historyObject = await scene.getFlag("history-playback", "historyObject");
 		if ( historyObject == null ) { historyObject = {}; }
@@ -98,9 +111,11 @@ class HistoryPlayback {
 		
 		var lastUserTime = await HistoryPlayback.getUserCurrentTime(game.user)
 		HistoryPlayback.rewindToTime(lastUserTime);
+		let skipBackButton = `<div id="history-skip-back" class="history-control" title="Skip Back History" data-tool="skipback"><i class="fas fa-caret-left"></i><i class="fas fa-caret-left"></i></div>`;
 		let stepBackButton = `<div id="history-step-back" class="history-control" title="Step Back History" data-tool="stepback"><i class="fas fa-caret-left"></i></div>`;
-		let stepForwardButton = `<div id="history-step-forward" class="history-control" title="Step Back Forward" data-tool="stepback"><i class="fas fa-caret-right"></i></div>`;
-		let historyButtons = `${stepBackButton}${stepForwardButton}`;
+		let stepForwardButton = `<div id="history-step-forward" class="history-control" title="Step Back Forward" data-tool="stepforward"><i class="fas fa-caret-right"></i></div>`;
+		let skipForwardButton = `<div id="history-skip-forward" class="history-control" title="Skip Forward History" data-tool="skipforward"><i class="fas fa-caret-right"></i><i class="fas fa-caret-right"></i></div>`;
+		let historyButtons = `${skipBackButton}${stepBackButton}${stepForwardButton}${skipForwardButton}`;
 		let historyControlDiv = `<div class="history-control-div flexrow">${historyButtons}</div>`;
 		let historyTopBar = `<p class="history-status-text">Viewing Live Game</p>`;
 		let historyParentDiv = $(`<div class="app history-div flexcol">${historyTopBar}${historyControlDiv}</div>`);
@@ -112,8 +127,8 @@ class HistoryPlayback {
 			$( this ).removeClass( "active" );
 		  }
 		);
-		$('.history-control').on('click', function () {
-			HistoryPlayback.onHistoryControlClick($(this));
+		$('.history-control').on('click', async function () {
+			await HistoryPlayback.onHistoryControlClick($(this));
 		});
 	}
 	
@@ -206,7 +221,7 @@ class HistoryPlayback {
 	static async rewindToTime(targetTime) {
 		const curUser = game.user;
 		const curScene = game.scenes.viewed;
-		let curTime = await HistoryPlayback.getPreviousTime(new Date(), curScene);;
+		let curTime = await HistoryPlayback.getPreviousTime(new Date(), curScene);
 		let historyObject = await curScene.getFlag("history-playback", "historyObject");
 		let earliestKey = await HistoryPlayback.getEarliestTime(curScene);
 		targetTime.getTime() > earliestKey.getTime() ? targetTime = targetTime : targetTime = earliestKey;
@@ -218,12 +233,13 @@ class HistoryPlayback {
 			
 			const curHistory = historyObject[DateTimeHelper.toFriendlyKey(curTime)];
 			HistoryPlayback.parseHistoryObject(curHistory, true);
-			if (curHistory[0]["type"] == "tokenMove") {
-				var token = canvas.tokens.get(curHistory[0]["tokenid"]);
-			}
 			workDone = true;
 		}
 		await game.settings.set('history-playback','viewing-history', workDone);
+		if (workDone) {
+			targetTime.setTime(targetTime.getTime() - 1); // set time to 1ms before key
+			await HistoryPlayback.setUserCurrentTime(curUser, new Date(targetTime));
+		}
 	}
 	
 	static async stepHistoryBack() {
@@ -249,6 +265,30 @@ class HistoryPlayback {
 			HistoryPlayback.parseHistoryObject(curHistory, true);
 			nextKey.setTime(nextKey.getTime() - 1); // set time to 1ms before key
 			await HistoryPlayback.setUserCurrentTime(curUser, new Date(nextKey));
+		}
+	}
+	
+	static async fastForwardToTime(targetTime) {
+		const curUser = game.user;
+		const curScene = game.scenes.viewed;
+		let curTime = await HistoryPlayback.getUserCurrentTime(curUser);
+		let historyObject = await curScene.getFlag("history-playback", "historyObject");
+		let lastKey = await HistoryPlayback.getLastTime(curScene);
+		targetTime.getTime() < lastKey.getTime() ? targetTime = targetTime : targetTime = lastKey;
+		console.log("Fast Fowarding history to: " + targetTime.toString() );
+		
+		var workDone = false;
+		while( targetTime.getTime() > curTime.getTime() ) {
+			curTime = await HistoryPlayback.getNextTime(curTime, curScene);
+			
+			const curHistory = historyObject[DateTimeHelper.toFriendlyKey(curTime)];
+			HistoryPlayback.parseHistoryObject(curHistory, false);
+			workDone = true;
+		}
+		if (workDone) {
+			targetTime.setTime(targetTime.getTime() + 1); // set time to 1ms before key
+			await HistoryPlayback.setUserCurrentTime(curUser, new Date(targetTime));
+			await game.settings.set('history-playback','viewing-history', (targetTime.getTime() > lastKey.getTime()) );
 		}
 	}
 	
@@ -313,12 +353,18 @@ class HistoryPlayback {
 		console.log(settingsMessage);
 	}
 	
-	static onHistoryControlClick(clickedControl) {
+	static async onHistoryControlClick(clickedControl) {
 		var id = clickedControl.prop('id');
 		if ( id === 'history-step-back' ) {
-			HistoryPlayback.stepHistoryBack();
+			await HistoryPlayback.stepHistoryBack();
 		} else if ( id === 'history-step-forward' ) { 
-			HistoryPlayback.stepHistoryForward();
+			await HistoryPlayback.stepHistoryForward();
+		} else if ( id === 'history-skip-back' ) { 
+			var earliestTime = await HistoryPlayback.getEarliestTime(game.scenes.viewed);
+			HistoryPlayback.rewindToTime(earliestTime);
+		} else if ( id === 'history-skip-forward' ) { 
+			var latestTime = await HistoryPlayback.getLastTime(game.scenes.viewed);
+			HistoryPlayback.fastForwardToTime(latestTime);
 		}
 	}
 	
