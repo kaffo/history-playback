@@ -77,6 +77,21 @@ class HistoryPlayback {
 		return nextKey;
 	}
 	
+	static async getTimesToCull(scene) {
+		let historyObject = await scene.getFlag("history-playback", "historyObject");
+		if ( historyObject == null ) { historyObject = {}; }
+		let keys = Object.keys(historyObject);
+		let maxHistoryActions = await game.settings.get('history-playback', 'max-history');
+		
+		let returnKeys = [];
+		keys.sort();
+		for (var i = 0; i < keys.length - maxHistoryActions; i++) {
+			returnKeys.push(DateTimeHelper.fromFriendlyKey(keys[i]));
+		}
+		
+		return returnKeys;
+	}
+	
 	static async onAppReady() {
 		Hooks.on('preUpdateToken', HistoryPlayback.onPreTokenUpdate);
 		Hooks.on('createChatMessage', HistoryPlayback.onCreateChatMessage);
@@ -122,6 +137,8 @@ class HistoryPlayback {
 			"to_y": delta["y"] != null ? delta["y"] : tokenData.y 
 		});
 		console.log("Storing time:" + DateTimeHelper.toFriendlyKey(now) + " id:" + tokenData._id + " x:" + tokenData.x + " y:" + tokenData.y);
+		let cullKeys = await HistoryPlayback.getTimesToCull(scene);
+		cullKeys.forEach(key => delete(historyObject[DateTimeHelper.toFriendlyKey(key)]) );
 		await scene.setFlag("history-playback", "historyObject", $.extend(true, {}, historyObject));
 	}
 	
@@ -146,6 +163,8 @@ class HistoryPlayback {
 			"messageid": chatMessage.id
 		});
 		console.log("Storing time:" + DateTimeHelper.toFriendlyKey(now) + " id:" + chatMessage.id);
+		let cullKeys = await HistoryPlayback.getTimesToCull(scene);
+		cullKeys.forEach(key => delete(historyObject[DateTimeHelper.toFriendlyKey(key)]) );
 		await scene.setFlag("history-playback", "historyObject", $.extend(true, {}, historyObject));
 	}
 
@@ -321,6 +340,14 @@ Hooks.once("init", () => {
 	  onChange: value => {
 		HistoryPlayback.onViewHistorySettingChange(value);
 	  }
+	});
+	game.settings.register('history-playback', 'max-history', {
+	  name: 'Max History Actions',
+	  hint: 'The number of historical actions to store before deleting older actions.',
+	  scope: 'server',
+	  config: true,
+	  type: Number,
+	  default: 120
 	});
 });
 
