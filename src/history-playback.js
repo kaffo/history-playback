@@ -22,21 +22,29 @@ class HistoryPlayback {
 		await curUser.setFlag("history-playback","current_time", DateTimeHelper.toFriendlyKey(curDateTime));
 	}
 	
+	static async getHistoryObject(scene) {
+		return await scene.getFlag("history-playback", "historyObject");
+	}
+	
+	static async setHistoryObject(scene, objToSet) {
+		await scene.setFlag("history-playback", "historyObject", $.extend(true, {}, objToSet));
+	}
+	
 	static async getEarliestTime(scene) {
-		let historyObject = await scene.getFlag("history-playback", "historyObject");
+		let historyObject = await HistoryPlayback.getHistoryObject(scene);
 		if ( historyObject == null ) { historyObject = {}; }
 		let keys = Object.keys(historyObject);
 		
 		keys.sort();
 		if (keys.length <= 0) {
-			return curTime;
+			return new Date();
 		}
 		
 		return DateTimeHelper.fromFriendlyKey(keys[0]);
 	}
 	
 	static async getPreviousTime(curTime, scene) {
-		let historyObject = await scene.getFlag("history-playback", "historyObject");
+		let historyObject = await HistoryPlayback.getHistoryObject(scene);
 		if ( historyObject == null ) { historyObject = {}; }
 		let keys = Object.keys(historyObject);
 		
@@ -57,20 +65,20 @@ class HistoryPlayback {
 	}
 	
 	static async getLastTime(scene) {
-		let historyObject = await scene.getFlag("history-playback", "historyObject");
+		let historyObject = await HistoryPlayback.getHistoryObject(scene);
 		if ( historyObject == null ) { historyObject = {}; }
 		let keys = Object.keys(historyObject);
 		
 		keys.sort();
 		if (keys.length <= 0) {
-			return curTime;
+			return new Date();
 		}
 		
 		return DateTimeHelper.fromFriendlyKey(keys[keys.length - 1]);
 	}
 	
 	static async getNextTime(curTime, scene) {
-		let historyObject = await scene.getFlag("history-playback", "historyObject");
+		let historyObject = await HistoryPlayback.getHistoryObject(scene);
 		if ( historyObject == null ) { historyObject = {}; }
 		let keys = Object.keys(historyObject);
 		
@@ -91,7 +99,7 @@ class HistoryPlayback {
 	}
 	
 	static async getTimesToCull(scene) {
-		let historyObject = await scene.getFlag("history-playback", "historyObject");
+		let historyObject = await HistoryPlayback.getHistoryObject(scene);
 		if ( historyObject == null ) { historyObject = {}; }
 		let keys = Object.keys(historyObject);
 		let maxHistoryActions = await game.settings.get('history-playback', 'max-history');
@@ -140,7 +148,7 @@ class HistoryPlayback {
 		now.setTime(now.getTime() - 1); // set key 1ms in the past
 
 		// Get and update history
-		let historyObject = await scene.getFlag("history-playback", "historyObject");
+		let historyObject = await HistoryPlayback.getHistoryObject(scene);
 		if ( historyObject == null ) { historyObject = {}; }
 		if (historyObject[DateTimeHelper.toFriendlyKey(now)] == null) { historyObject[DateTimeHelper.toFriendlyKey(now)] = []; }
 		historyObject[DateTimeHelper.toFriendlyKey(now)].push({
@@ -154,7 +162,7 @@ class HistoryPlayback {
 		console.log("Storing time:" + DateTimeHelper.toFriendlyKey(now) + " id:" + tokenData._id + " x:" + tokenData.x + " y:" + tokenData.y);
 		let cullKeys = await HistoryPlayback.getTimesToCull(scene);
 		cullKeys.forEach(key => delete(historyObject[DateTimeHelper.toFriendlyKey(key)]) );
-		await scene.setFlag("history-playback", "historyObject", $.extend(true, {}, historyObject));
+		await HistoryPlayback.setHistoryObject(scene, historyObject);
 	}
 	
 	static async onCreateChatMessage(chatMessage, options, userid) {
@@ -170,7 +178,7 @@ class HistoryPlayback {
 		now.setTime(now.getTime() - 1); // set key 1ms in the past
 
 		// Get and update history
-		let historyObject = await scene.getFlag("history-playback", "historyObject");
+		let historyObject = await HistoryPlayback.getHistoryObject(scene);
 		if ( historyObject == null ) { historyObject = {}; }
 		if (historyObject[DateTimeHelper.toFriendlyKey(now)] == null) { historyObject[DateTimeHelper.toFriendlyKey(now)] = []; }
 		historyObject[DateTimeHelper.toFriendlyKey(now)].push({
@@ -180,7 +188,7 @@ class HistoryPlayback {
 		console.log("Storing time:" + DateTimeHelper.toFriendlyKey(now) + " id:" + chatMessage.id);
 		let cullKeys = await HistoryPlayback.getTimesToCull(scene);
 		cullKeys.forEach(key => delete(historyObject[DateTimeHelper.toFriendlyKey(key)]) );
-		await scene.setFlag("history-playback", "historyObject", $.extend(true, {}, historyObject));
+		await HistoryPlayback.setHistoryObject(scene, historyObject);
 	}
 
 	static parseHistoryObject(curHistory, backwards = true) {
@@ -222,7 +230,7 @@ class HistoryPlayback {
 		const curUser = game.user;
 		const curScene = game.scenes.viewed;
 		let curTime = await HistoryPlayback.getPreviousTime(new Date(), curScene);
-		let historyObject = await curScene.getFlag("history-playback", "historyObject");
+		let historyObject = await HistoryPlayback.getHistoryObject(curScene);
 		let earliestKey = await HistoryPlayback.getEarliestTime(curScene);
 		targetTime.getTime() > earliestKey.getTime() ? targetTime = targetTime : targetTime = earliestKey;
 		console.log("Rewinding history to: " + targetTime.toString() );
@@ -256,7 +264,7 @@ class HistoryPlayback {
 			console.log("No History to rewind");
 			return; 
 		} else {
-			let historyObject = await curScene.getFlag("history-playback", "historyObject");
+			let historyObject = await HistoryPlayback.getHistoryObject(curScene);
 			if ( historyObject == null ) {
 				await game.settings.set('history-playback','viewing-history', false);
 				return; 
@@ -272,7 +280,7 @@ class HistoryPlayback {
 		const curUser = game.user;
 		const curScene = game.scenes.viewed;
 		let curTime = await HistoryPlayback.getUserCurrentTime(curUser);
-		let historyObject = await curScene.getFlag("history-playback", "historyObject");
+		let historyObject = await HistoryPlayback.getHistoryObject(curScene);
 		let lastKey = await HistoryPlayback.getLastTime(curScene);
 		targetTime.getTime() < lastKey.getTime() ? targetTime = targetTime : targetTime = lastKey;
 		console.log("Fast Fowarding history to: " + targetTime.toString() );
@@ -302,7 +310,7 @@ class HistoryPlayback {
 		$('.history-message-active').removeClass( "history-message-active" );
 		
 		var nextKey = await HistoryPlayback.getNextTime(currentTime, curScene);
-		let historyObject = await curScene.getFlag("history-playback", "historyObject");
+		let historyObject = await HistoryPlayback.getHistoryObject(curScene);
 		if ( historyObject == null ) {
 			game.settings.set('history-playback','viewing-history', false);
 			return; 
