@@ -12,22 +12,53 @@ class DateTimeHelper {
 
 //CONFIG.debug.hooks = true
 class HistoryPlayback {
-	static async getUserCurrentTime(curUser) {
-		let currentTime = await curUser.getFlag("history-playback","current_time")
+	static async getCurrentTimeObject(curScene) {
+		let journalEntry = curScene.journal;
+		if (journalEntry == null) {
+			console.log("No Journal set on current scene");
+			return {};
+		}
+		let currentTimeObject = await journalEntry.getFlag("history-playback","current_time")
+		if (currentTimeObject == null) { currentTimeObject = {}; }
+		return currentTimeObject;
+	}
+	
+	static async getUserCurrentTime(curUser, curScene) {
+		let currentTimeObject = await HistoryPlayback.getCurrentTimeObject(curScene);
+		let currentTime = currentTimeObject[curUser.id];
 		currentTime == null ? currentTime = new Date() : currentTime = DateTimeHelper.fromFriendlyKey(currentTime);
 		return currentTime;
 	}
 	
-	static async setUserCurrentTime(curUser, curDateTime) {
-		await curUser.setFlag("history-playback","current_time", DateTimeHelper.toFriendlyKey(curDateTime));
+	static async setUserCurrentTime(curUser, curScene, curDateTime) {
+		let journalEntry = curScene.journal;
+		if (journalEntry == null) {
+			console.log("No Journal set on current scene");
+		}
+		let currentTimeObject = await HistoryPlayback.getCurrentTimeObject(curScene);
+		currentTimeObject[curUser.id] = DateTimeHelper.toFriendlyKey(curDateTime);
+		await journalEntry.setFlag("history-playback","current_time", $.extend(true, {}, currentTimeObject));
 	}
 	
 	static async getHistoryObject(scene) {
-		return await scene.getFlag("history-playback", "historyObject");
+		let journalEntry = scene.journal;
+		if (journalEntry == null) {
+			console.log("No Journal set on current scene");
+			return null; 
+		}
+		else {
+			return await journalEntry.getFlag("history-playback", "historyObject");
+		}
 	}
 	
 	static async setHistoryObject(scene, objToSet) {
-		await scene.setFlag("history-playback", "historyObject", $.extend(true, {}, objToSet));
+		let journalEntry = scene.journal;
+		if (journalEntry == null) { 
+			console.log("No Journal set on current scene");
+		}
+		else {
+			await journalEntry.setFlag("history-playback", "historyObject", $.extend(true, {}, objToSet));
+		}
 	}
 	
 	static async getEarliestTime(scene) {
@@ -114,11 +145,10 @@ class HistoryPlayback {
 	}
 	
 	static async onAppReady() {
+		Hooks.on('renderApplication', HistoryPlayback.onApplicationRender);
 		Hooks.on('preUpdateToken', HistoryPlayback.onPreTokenUpdate);
 		Hooks.on('createChatMessage', HistoryPlayback.onCreateChatMessage);
 		
-		var lastUserTime = await HistoryPlayback.getUserCurrentTime(game.user)
-		HistoryPlayback.rewindToTime(lastUserTime);
 		let skipBackButton = `<div id="history-skip-back" class="history-control" title="Skip Back History" data-tool="skipback"><i class="fas fa-caret-left"></i><i class="fas fa-caret-left"></i></div>`;
 		let stepBackButton = `<div id="history-step-back" class="history-control" title="Step Back History" data-tool="stepback"><i class="fas fa-caret-left"></i></div>`;
 		let stepForwardButton = `<div id="history-step-forward" class="history-control" title="Step Back Forward" data-tool="stepforward"><i class="fas fa-caret-right"></i></div>`;
@@ -140,11 +170,16 @@ class HistoryPlayback {
 		});
 	}
 	
+	static async onApplicationRender(sceneNavigation, html, data) {
+		var lastUserTime = await HistoryPlayback.getUserCurrentTime(game.user, game.scenes.viewed)
+		HistoryPlayback.rewindToTime(lastUserTime);
+	}
+	
 	static async onPreTokenUpdate(scene, tokenData, delta, object, userid) {
 		const curUser = game.user
 		// update user's current time
 		const now = new Date();
-		await HistoryPlayback.setUserCurrentTime(curUser, now);
+		await HistoryPlayback.setUserCurrentTime(curUser, scene, now);
 		now.setTime(now.getTime() - 1); // set key 1ms in the past
 
 		// Get and update history
@@ -174,7 +209,7 @@ class HistoryPlayback {
 		
 		// update user's current time
 		const now = new Date();
-		await HistoryPlayback.setUserCurrentTime(curUser, now);
+		await HistoryPlayback.setUserCurrentTime(curUser, scene, now);
 		now.setTime(now.getTime() - 1); // set key 1ms in the past
 
 		// Get and update history
@@ -246,14 +281,14 @@ class HistoryPlayback {
 		await game.settings.set('history-playback','viewing-history', workDone);
 		if (workDone) {
 			targetTime.setTime(targetTime.getTime() - 1); // set time to 1ms before key
-			await HistoryPlayback.setUserCurrentTime(curUser, new Date(targetTime));
+			await HistoryPlayback.setUserCurrentTime(curUser, curScene, new Date(targetTime));
 		}
 	}
 	
 	static async stepHistoryBack() {
 		const curUser = game.user;
-		const currentTime = await HistoryPlayback.getUserCurrentTime(curUser);
 		const curScene = game.scenes.viewed;
+		const currentTime = await HistoryPlayback.getUserCurrentTime(curUser, curScene);
 		await game.settings.set('history-playback','viewing-history', true);
 		
 		// Reset chat messages
@@ -272,14 +307,14 @@ class HistoryPlayback {
 			const curHistory = historyObject[DateTimeHelper.toFriendlyKey(nextKey)];
 			HistoryPlayback.parseHistoryObject(curHistory, true);
 			nextKey.setTime(nextKey.getTime() - 1); // set time to 1ms before key
-			await HistoryPlayback.setUserCurrentTime(curUser, new Date(nextKey));
+			await HistoryPlayback.setUserCurrentTime(curUser, curScene, new Date(nextKey));
 		}
 	}
 	
 	static async fastForwardToTime(targetTime) {
 		const curUser = game.user;
 		const curScene = game.scenes.viewed;
-		let curTime = await HistoryPlayback.getUserCurrentTime(curUser);
+		let curTime = await HistoryPlayback.getUserCurrentTime(curUser, curScene);
 		let historyObject = await HistoryPlayback.getHistoryObject(curScene);
 		let lastKey = await HistoryPlayback.getLastTime(curScene);
 		targetTime.getTime() < lastKey.getTime() ? targetTime = targetTime : targetTime = lastKey;
@@ -295,15 +330,15 @@ class HistoryPlayback {
 		}
 		if (workDone) {
 			targetTime.setTime(targetTime.getTime() + 1); // set time to 1ms before key
-			await HistoryPlayback.setUserCurrentTime(curUser, new Date(targetTime));
+			await HistoryPlayback.setUserCurrentTime(curUser, curScene, new Date(targetTime));
 			await game.settings.set('history-playback','viewing-history', (targetTime.getTime() > lastKey.getTime()) );
 		}
 	}
 	
 	static async stepHistoryForward() {
 		const curUser = game.user;
-		const currentTime = await HistoryPlayback.getUserCurrentTime(curUser);
 		const curScene = game.scenes.viewed;
+		const currentTime = await HistoryPlayback.getUserCurrentTime(curUser, curScene);
 		await game.settings.set('history-playback','viewing-history', true);
 		
 		// Reset chat messages
@@ -317,14 +352,14 @@ class HistoryPlayback {
 		}
 		if (currentTime.getTime() >= nextKey.getTime() ) { 
 			console.log("At newest point in History");
-			await HistoryPlayback.setUserCurrentTime(curUser, new Date()); // Set time to now
+			await HistoryPlayback.setUserCurrentTime(curUser, curScene, new Date()); // Set time to now
 			await game.settings.set('history-playback','viewing-history', false);
 			return; 
 		} else {
 			const curHistory = historyObject[DateTimeHelper.toFriendlyKey(nextKey)];
 			HistoryPlayback.parseHistoryObject(curHistory, false);
 			nextKey.setTime(nextKey.getTime() + 1); // set time to 1ms after key
-			await HistoryPlayback.setUserCurrentTime(curUser, new Date(nextKey));
+			await HistoryPlayback.setUserCurrentTime(curUser, curScene, new Date(nextKey));
 		}
 	}
 	
@@ -341,7 +376,7 @@ class HistoryPlayback {
 	static async onViewHistorySettingChange(newValue) {
 		var settingsMessage;
 		if (newValue) {
-			let curUserTime = await HistoryPlayback.getUserCurrentTime(game.user);
+			let curUserTime = await HistoryPlayback.getUserCurrentTime(game.user, game.scenes.viewed);
 			$(".history-status-text").html("Viewing Historical Game<br>" + curUserTime.toLocaleString());
 			//HistoryPlayback.modifyClassOnChildren("history-no-mouse", $("body.vtt"), false);
 			$("body.vtt").css("pointer-events", "none");
