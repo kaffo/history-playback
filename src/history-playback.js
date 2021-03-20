@@ -185,6 +185,7 @@ class HistoryPlayback {
 		Hooks.on('renderApplication', HistoryPlayback.onApplicationRender);
 		Hooks.on('preUpdateToken', HistoryPlayback.onPreTokenUpdate);
 		Hooks.on('createChatMessage', HistoryPlayback.onCreateChatMessage);
+		Hooks.on('createToken', HistoryPlayback.onTokenCreate);
 		Hooks.on('preDeleteToken', HistoryPlayback.onPreTokenDelete);
 		
 		let skipBackButton = `<div id="history-skip-back" class="history-control" title="Skip Back History" data-tool="skipback"><i class="fas fa-caret-left"></i><i class="fas fa-caret-left"></i></div>`;
@@ -238,7 +239,53 @@ class HistoryPlayback {
 		await HistoryPlayback.setHistoryObject(scene, historyObject);
 	}
 	
-	static async onPreTokenDelete(scene, tokenData, delta, userid) {
+	static async onTokenCreate(scene, tokenData, options, userid) {
+		const curUser = game.user
+		
+		// Only create if you created it
+		if (curUser.id != userid) { return; }
+		
+		// update user's current time
+		const now = new Date();
+		await HistoryPlayback.setUserCurrentTime(curUser, scene, now);
+		now.setTime(now.getTime() - 1); // set key 1ms in the past
+
+		// Get and update history
+		let historyObject = await HistoryPlayback.getHistoryObject(scene);
+		if ( historyObject == null ) { historyObject = {}; }
+		if (historyObject[DateTimeHelper.toFriendlyKey(now)] == null) { historyObject[DateTimeHelper.toFriendlyKey(now)] = []; }
+		historyObject[DateTimeHelper.toFriendlyKey(now)].push({
+			"type": "tokenCreate",
+			"tokenid": tokenData._id,
+			"x": tokenData.x,
+			"y": tokenData.y,
+			"img": tokenData.img,
+			"name": tokenData.name,
+			"rotation": tokenData.rotation,
+			"scale": tokenData.scale,
+			"width": tokenData.width,
+			"height": tokenData.height,
+			"effects": tokenData.effects
+		});
+		console.log(
+			"Storing time:" + DateTimeHelper.toFriendlyKey(now) + 
+			" id:" + tokenData._id + 
+			" x:" + tokenData.x + 
+			" y:" + tokenData.y + 
+			" img:" + tokenData.img + 
+			" name:" + tokenData.name + 
+			" rotation:" + tokenData.rotation + 
+			" scale:" + tokenData.scale + 
+			" width:" + tokenData.width +
+			" height:" + tokenData.height +
+			" effects:" + tokenData.effects
+		);
+		let cullKeys = await HistoryPlayback.getTimesToCull(scene);
+		cullKeys.forEach(key => delete(historyObject[DateTimeHelper.toFriendlyKey(key)]) );
+		await HistoryPlayback.setHistoryObject(scene, historyObject);
+	}
+	
+	static async onPreTokenDelete(scene, tokenData, options, userid) {
 		const curUser = game.user
 		// update user's current time
 		const now = new Date();
@@ -259,6 +306,7 @@ class HistoryPlayback {
 			"rotation": tokenData.rotation,
 			"scale": tokenData.scale,
 			"width": tokenData.width,
+			"height": tokenData.height,
 			"effects": tokenData.effects
 		});
 		console.log(
@@ -271,6 +319,7 @@ class HistoryPlayback {
 			" rotation:" + tokenData.rotation + 
 			" scale:" + tokenData.scale + 
 			" width:" + tokenData.width +
+			" height:" + tokenData.height +
 			" effects:" + tokenData.effects
 		);
 		let cullKeys = await HistoryPlayback.getTimesToCull(scene);
@@ -306,6 +355,9 @@ class HistoryPlayback {
 
 	static async parseHistoryObject(curHistory, backwards = true) {
 		for (var i = 0; i < curHistory.length; i++) {
+			let createDummyToken = ( curHistory[i]["type"] == "tokenDelete" && backwards ) || ( curHistory[i]["type"] == "tokenCreate" && !backwards );
+			let deleteDummyToken = ( curHistory[i]["type"] == "tokenDelete" && !backwards ) || ( curHistory[i]["type"] == "tokenCreate" && backwards );
+			
 			if (curHistory[i]["type"] == "tokenMove") {
 				let token = HistoryPlayback.getToken(curHistory[i]["tokenid"]);
 				if (token !== undefined) {
@@ -330,52 +382,50 @@ class HistoryPlayback {
 						}
 					}
 				}
-			} else if (curHistory[i]["type"] == "tokenDelete") {
-				if (backwards) {
-					let tokenData = 
-					{
-						"id": curHistory[i]["tokenid"],
-						"actorId": "",
-						"actorLink": false,
-						"bar1": {},
-						"bar2": {},
-						"brightLight": 0,
-						"brightSight": 0,
-						"dimLight": 0,
-						"dimSight": 0,
-						"displayBars": 0,
-						"displayName": 0,
-						"disposition": -1,
-						"effects": curHistory[i]["effects"],
-						"flags": {},
-						"height": 1,
-						"hidden": false,
-						"img": curHistory[i]["img"],
-						"lightAlpha": 1,
-						"lightAngle": 360,
-						"lightAnimation": {speed: 5, intensity: 5},
-						"lockRotation": false,
-						"name": curHistory[i]["name"],
-						"randomImg": false,
-						"rotation": curHistory[i]["rotation"],
-						"scale": curHistory[i]["scale"],
-						"sightAngle": 360,
-						"tint": null,
-						"vision": false,
-						"width": 1,
-						"x": curHistory[i]["x"],
-						"y": curHistory[i]["y"]
-					}
-					let token = new DummyToken(tokenData);
-					HistoryPlayback.tempTokens.push(token);
-					canvas.animatePan({x: tokenData.x, y: tokenData.y, scale: Math.max(1, canvas.stage.scale.x), duration: 500});
-				} else {
-					for (var j = 0; j < HistoryPlayback.tempTokens.length; j++ ) {
-						if (HistoryPlayback.tempTokens[j].id == curHistory[i]["tokenid"]) { 
-							HistoryPlayback.tempTokens[j].deleteToken();
-							HistoryPlayback.tempTokens.splice(j, 1);
-							break; 
-						}
+			} else if (createDummyToken) {
+				let tokenData = 
+				{
+					"id": curHistory[i]["tokenid"],
+					"actorId": "",
+					"actorLink": false,
+					"bar1": {},
+					"bar2": {},
+					"brightLight": 0,
+					"brightSight": 0,
+					"dimLight": 0,
+					"dimSight": 0,
+					"displayBars": 0,
+					"displayName": 0,
+					"disposition": -1,
+					"effects": curHistory[i]["effects"],
+					"flags": {},
+					"height": 1,
+					"hidden": false,
+					"img": curHistory[i]["img"],
+					"lightAlpha": 1,
+					"lightAngle": 360,
+					"lightAnimation": {speed: 5, intensity: 5},
+					"lockRotation": false,
+					"name": curHistory[i]["name"],
+					"randomImg": false,
+					"rotation": curHistory[i]["rotation"],
+					"scale": curHistory[i]["scale"],
+					"sightAngle": 360,
+					"tint": null,
+					"vision": false,
+					"width": 1,
+					"x": curHistory[i]["x"],
+					"y": curHistory[i]["y"]
+				}
+				let token = new DummyToken(tokenData);
+				HistoryPlayback.tempTokens.push(token);
+				canvas.animatePan({x: tokenData.x, y: tokenData.y, scale: Math.max(1, canvas.stage.scale.x), duration: 500});
+			} else if (deleteDummyToken) {
+				for (var j = 0; j < HistoryPlayback.tempTokens.length; j++ ) {
+					if (HistoryPlayback.tempTokens[j].id == curHistory[i]["tokenid"]) { 
+						HistoryPlayback.tempTokens[j].deleteToken();
+						HistoryPlayback.tempTokens.splice(j, 1);
+						break; 
 					}
 				}
 			}
