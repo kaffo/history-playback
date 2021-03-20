@@ -1,6 +1,6 @@
 class DateTimeHelper {
 	static toFriendlyKey(date) {
-		return date.getTime();//date.toJSON().replace('.','$');
+		return date.getTime();
 	}
 	
 	static fromFriendlyKey(friendlyKey) {
@@ -15,11 +15,12 @@ class DummyToken extends PIXI.Container {
 		super();
 		this._id = data.id;
 		canvas.tokens.addChild(this);
-		const texture = PIXI.Texture.from(data.img);
-		const tokenImg = new PIXI.Sprite(texture);
+		this.texture = PIXI.Texture.from(data.img);
+		const tokenImg = new PIXI.Sprite(this.texture);
 		tokenImg.height = 100;
 		tokenImg.width = 100;
-		this.addChild(tokenImg);
+		//tokenImg.anchor.set(0.5);
+		this.icon = this.addChild(tokenImg);
 		this.x = data.x;
 		this.y = data.y;
 	}
@@ -308,10 +309,8 @@ class HistoryPlayback {
 			if (curHistory[i]["type"] == "tokenMove") {
 				let token = HistoryPlayback.getToken(curHistory[i]["tokenid"]);
 				if (token !== undefined) {
-					var x;
-					var y;
-					backwards ? x = curHistory[i]["from_x"] : x = curHistory[i]["to_x"];
-					backwards ? y = curHistory[i]["from_y"] : y = curHistory[i]["to_y"];
+					var x = backwards ? curHistory[i]["from_x"] : curHistory[i]["to_x"];
+					var y = backwards ? curHistory[i]["from_y"] : curHistory[i]["to_y"];
 					token.position.set(x, y);
 					canvas.animatePan({x: x, y: y, scale: Math.max(1, canvas.stage.scale.x), duration: 500});
 					console.log("id:" + curHistory[i]["tokenid"] + " x:" + x + " y:" + y);
@@ -368,15 +367,6 @@ class HistoryPlayback {
 						"y": curHistory[i]["y"]
 					}
 					let token = new DummyToken(tokenData);
-					/*token.id = curHistory[i]["tokenid"];
-					canvas.tokens.addChild(token);
-					const texture = PIXI.Texture.from(tokenData.img);
-					const tokenImg = new PIXI.Sprite(texture);
-					tokenImg.height = 100;
-					tokenImg.width = 100;
-					token.addChild(tokenImg);
-					token.x = tokenData.x;
-					token.y = tokenData.y;*/
 					HistoryPlayback.tempTokens.push(token);
 					canvas.animatePan({x: tokenData.x, y: tokenData.y, scale: Math.max(1, canvas.stage.scale.x), duration: 500});
 				} else {
@@ -513,7 +503,12 @@ class HistoryPlayback {
 			$("body.vtt").css("pointer-events", "none");
 			let tokenRefresh = function() { };
 			let tokenUpdate = function() { };
-			canvas.tokens.placeables.forEach(function (token) { token.refresh = tokenRefresh; token._onUpdate = tokenUpdate });
+			canvas.tokens.placeables.forEach(function (token) { 
+				if (typeof token == typeof Token) {
+					token.refresh = tokenRefresh;
+					token._onUpdate = tokenUpdate;
+				}
+			});
 			settingsMessage = "Client now viewing history"
 		} else {
 			// Live
@@ -522,7 +517,12 @@ class HistoryPlayback {
 			$("body.vtt").css("pointer-events", "auto");
 			let tokenRefresh = new Token().refresh;
 			let tokenUpdate = new Token()._onUpdate;
-			canvas.tokens.placeables.forEach(function (token) { token.refresh = tokenRefresh; token._onUpdate = tokenUpdate });
+			canvas.tokens.placeables.forEach(function (token) {
+				if (typeof token == typeof Token) {
+					token.refresh = tokenRefresh;
+					token._onUpdate = tokenUpdate;
+				}
+			});
 			settingsMessage = "Client now viewing live game";
 		}
 		console.log(settingsMessage);
