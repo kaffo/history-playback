@@ -10,8 +10,33 @@ class DateTimeHelper {
 	}
 }
 
+class DummyToken extends PIXI.Container {
+	constructor(data) {
+		super();
+		this._id = data.id;
+		canvas.tokens.addChild(this);
+		const texture = PIXI.Texture.from(data.img);
+		const tokenImg = new PIXI.Sprite(texture);
+		tokenImg.height = 100;
+		tokenImg.width = 100;
+		this.addChild(tokenImg);
+		this.x = data.x;
+		this.y = data.y;
+	}
+	
+	get id() {
+		return this._id;
+	}
+	
+	deleteToken() {
+		canvas.tokens.removeChild(this);
+	}
+}
+
 //CONFIG.debug.hooks = true
 class HistoryPlayback {
+	static tempTokens = [];
+	
 	static async getCurrentTimeObject(curScene) {
 		let journalEntry = curScene.journal;
 		if (journalEntry == null) {
@@ -59,6 +84,17 @@ class HistoryPlayback {
 		else {
 			await journalEntry.setFlag("history-playback", "historyObject", $.extend(true, {}, objToSet));
 		}
+	}
+	
+	static getToken(tokenid) {
+		let index = HistoryPlayback.tempTokens.findIndex((element) => element.id == tokenid);
+		if (index >= 0) { return HistoryPlayback.tempTokens[index]; }
+		
+		let tokenIndex = canvas.tokens.placeables.findIndex((element) => element.id == tokenid);
+		// 0.8 use game.viewed.tokens.entries
+		if (tokenIndex >= 0) { return canvas.tokens.placeables[tokenIndex]; }
+		
+		return undefined;
 	}
 	
 	static async getEarliestTime(scene) {
@@ -148,6 +184,7 @@ class HistoryPlayback {
 		Hooks.on('renderApplication', HistoryPlayback.onApplicationRender);
 		Hooks.on('preUpdateToken', HistoryPlayback.onPreTokenUpdate);
 		Hooks.on('createChatMessage', HistoryPlayback.onCreateChatMessage);
+		Hooks.on('preDeleteToken', HistoryPlayback.onPreTokenDelete);
 		
 		let skipBackButton = `<div id="history-skip-back" class="history-control" title="Skip Back History" data-tool="skipback"><i class="fas fa-caret-left"></i><i class="fas fa-caret-left"></i></div>`;
 		let stepBackButton = `<div id="history-step-back" class="history-control" title="Step Back History" data-tool="stepback"><i class="fas fa-caret-left"></i></div>`;
@@ -200,6 +237,46 @@ class HistoryPlayback {
 		await HistoryPlayback.setHistoryObject(scene, historyObject);
 	}
 	
+	static async onPreTokenDelete(scene, tokenData, delta, userid) {
+		const curUser = game.user
+		// update user's current time
+		const now = new Date();
+		await HistoryPlayback.setUserCurrentTime(curUser, scene, now);
+		now.setTime(now.getTime() - 1); // set key 1ms in the past
+
+		// Get and update history
+		let historyObject = await HistoryPlayback.getHistoryObject(scene);
+		if ( historyObject == null ) { historyObject = {}; }
+		if (historyObject[DateTimeHelper.toFriendlyKey(now)] == null) { historyObject[DateTimeHelper.toFriendlyKey(now)] = []; }
+		historyObject[DateTimeHelper.toFriendlyKey(now)].push({
+			"type": "tokenDelete",
+			"tokenid": tokenData._id,
+			"x": tokenData.x,
+			"y": tokenData.y,
+			"img": tokenData.img,
+			"name": tokenData.name,
+			"rotation": tokenData.rotation,
+			"scale": tokenData.scale,
+			"width": tokenData.width,
+			"effects": tokenData.effects
+		});
+		console.log(
+			"Storing time:" + DateTimeHelper.toFriendlyKey(now) + 
+			" id:" + tokenData._id + 
+			" x:" + tokenData.x + 
+			" y:" + tokenData.y + 
+			" img:" + tokenData.img + 
+			" name:" + tokenData.name + 
+			" rotation:" + tokenData.rotation + 
+			" scale:" + tokenData.scale + 
+			" width:" + tokenData.width +
+			" effects:" + tokenData.effects
+		);
+		let cullKeys = await HistoryPlayback.getTimesToCull(scene);
+		cullKeys.forEach(key => delete(historyObject[DateTimeHelper.toFriendlyKey(key)]) );
+		await HistoryPlayback.setHistoryObject(scene, historyObject);
+	}
+	
 	static async onCreateChatMessage(chatMessage, options, userid) {
 		const curUser = game.user
 		const scene = game.scenes.viewed;
@@ -226,13 +303,11 @@ class HistoryPlayback {
 		await HistoryPlayback.setHistoryObject(scene, historyObject);
 	}
 
-	static parseHistoryObject(curHistory, backwards = true) {
+	static async parseHistoryObject(curHistory, backwards = true) {
 		for (var i = 0; i < curHistory.length; i++) {
 			if (curHistory[i]["type"] == "tokenMove") {
-				let tokenIndex = canvas.tokens.placeables.findIndex((element) => element.id == curHistory[i]["tokenid"]);
-				if (tokenIndex >= 0) {
-					// 0.8 use game.viewed.tokens.entries
-					let token = canvas.tokens.placeables[tokenIndex];
+				let token = HistoryPlayback.getToken(curHistory[i]["tokenid"]);
+				if (token !== undefined) {
 					var x;
 					var y;
 					backwards ? x = curHistory[i]["from_x"] : x = curHistory[i]["to_x"];
@@ -244,8 +319,8 @@ class HistoryPlayback {
 			} else if (curHistory[i]["type"] == "chatMessage") {
 				const message = game.messages.get(curHistory[i]["messageid"]);
 				if (message) {
-					const token = canvas.tokens.get(message.data.speaker.token);
-					if ( token ) {
+					const token = HistoryPlayback.getToken(message.data.speaker.token);
+					if ( token !== undefined ) {
 						canvas.hud.bubbles.say(token, message.data.content, {
 							emote: message.data.type === CONST.CHAT_MESSAGE_TYPES.EMOTE
 						});
@@ -255,7 +330,63 @@ class HistoryPlayback {
 							messageHTML.get(0).scrollIntoView()
 						}
 					}
-					
+				}
+			} else if (curHistory[i]["type"] == "tokenDelete") {
+				if (backwards) {
+					let tokenData = 
+					{
+						"id": curHistory[i]["tokenid"],
+						"actorId": "",
+						"actorLink": false,
+						"bar1": {},
+						"bar2": {},
+						"brightLight": 0,
+						"brightSight": 0,
+						"dimLight": 0,
+						"dimSight": 0,
+						"displayBars": 0,
+						"displayName": 0,
+						"disposition": -1,
+						"effects": curHistory[i]["effects"],
+						"flags": {},
+						"height": 1,
+						"hidden": false,
+						"img": curHistory[i]["img"],
+						"lightAlpha": 1,
+						"lightAngle": 360,
+						"lightAnimation": {speed: 5, intensity: 5},
+						"lockRotation": false,
+						"name": curHistory[i]["name"],
+						"randomImg": false,
+						"rotation": curHistory[i]["rotation"],
+						"scale": curHistory[i]["scale"],
+						"sightAngle": 360,
+						"tint": null,
+						"vision": false,
+						"width": 1,
+						"x": curHistory[i]["x"],
+						"y": curHistory[i]["y"]
+					}
+					let token = new DummyToken(tokenData);
+					/*token.id = curHistory[i]["tokenid"];
+					canvas.tokens.addChild(token);
+					const texture = PIXI.Texture.from(tokenData.img);
+					const tokenImg = new PIXI.Sprite(texture);
+					tokenImg.height = 100;
+					tokenImg.width = 100;
+					token.addChild(tokenImg);
+					token.x = tokenData.x;
+					token.y = tokenData.y;*/
+					HistoryPlayback.tempTokens.push(token);
+					canvas.animatePan({x: tokenData.x, y: tokenData.y, scale: Math.max(1, canvas.stage.scale.x), duration: 500});
+				} else {
+					for (var j = 0; j < HistoryPlayback.tempTokens.length; j++ ) {
+						if (HistoryPlayback.tempTokens[j].id == curHistory[i]["tokenid"]) { 
+							HistoryPlayback.tempTokens[j].deleteToken();
+							HistoryPlayback.tempTokens.splice(j, 1);
+							break; 
+						}
+					}
 				}
 			}
 		}
@@ -275,7 +406,7 @@ class HistoryPlayback {
 			curTime = await HistoryPlayback.getPreviousTime(curTime, curScene);
 			
 			const curHistory = historyObject[DateTimeHelper.toFriendlyKey(curTime)];
-			HistoryPlayback.parseHistoryObject(curHistory, true);
+			await HistoryPlayback.parseHistoryObject(curHistory, true);
 			workDone = true;
 		}
 		await game.settings.set('history-playback','viewing-history', workDone);
@@ -305,7 +436,7 @@ class HistoryPlayback {
 				return; 
 			}
 			const curHistory = historyObject[DateTimeHelper.toFriendlyKey(nextKey)];
-			HistoryPlayback.parseHistoryObject(curHistory, true);
+			await HistoryPlayback.parseHistoryObject(curHistory, true);
 			nextKey.setTime(nextKey.getTime() - 1); // set time to 1ms before key
 			await HistoryPlayback.setUserCurrentTime(curUser, curScene, new Date(nextKey));
 		}
@@ -325,7 +456,7 @@ class HistoryPlayback {
 			curTime = await HistoryPlayback.getNextTime(curTime, curScene);
 			
 			const curHistory = historyObject[DateTimeHelper.toFriendlyKey(curTime)];
-			HistoryPlayback.parseHistoryObject(curHistory, false);
+			await HistoryPlayback.parseHistoryObject(curHistory, false);
 			workDone = true;
 		}
 		if (workDone) {
@@ -357,7 +488,7 @@ class HistoryPlayback {
 			return; 
 		} else {
 			const curHistory = historyObject[DateTimeHelper.toFriendlyKey(nextKey)];
-			HistoryPlayback.parseHistoryObject(curHistory, false);
+			await HistoryPlayback.parseHistoryObject(curHistory, false);
 			nextKey.setTime(nextKey.getTime() + 1); // set time to 1ms after key
 			await HistoryPlayback.setUserCurrentTime(curUser, curScene, new Date(nextKey));
 		}
