@@ -64,6 +64,7 @@ class HistoryPlayback {
 		let journalEntry = curScene.journal;
 		if (journalEntry == null) {
 			console.log("No Journal set on current scene");
+			return;
 		}
 		let currentTimeObject = await HistoryPlayback.getCurrentTimeObject(curScene);
 		currentTimeObject[curUser.id] = DateTimeHelper.toFriendlyKey(curDateTime);
@@ -85,6 +86,7 @@ class HistoryPlayback {
 		let journalEntry = scene.journal;
 		if (journalEntry == null) { 
 			console.log("No Journal set on current scene");
+			return;
 		}
 		else {
 			await journalEntry.setFlag("history-playback", "historyObject", $.extend(true, {}, objToSet));
