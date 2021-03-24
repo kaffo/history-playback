@@ -17,7 +17,7 @@ class DummyToken extends PIXI.Container {
 		canvas.tokens.addChild(this);
 		this.texture = PIXI.Texture.from(data.img);
 		const tokenImg = new PIXI.Sprite(this.texture);
-		tokenImg.height = 100;
+		tokenImg.height = canvas.grid.size;
 		tokenImg.width = 100;
 		//tokenImg.anchor.set(0.5);
 		this.icon = this.addChild(tokenImg);
@@ -42,6 +42,9 @@ class DummyToken extends PIXI.Container {
 class HistoryPlayback {
 	static tempTokens = [];
 	
+	//
+	// Helpers
+	//
 	static async getCurrentTimeObject(curScene) {
 		let journalEntry = curScene.journal;
 		if (journalEntry == null) {
@@ -187,13 +190,7 @@ class HistoryPlayback {
 		return returnKeys;
 	}
 	
-	static async onAppReady() {
-		Hooks.on('renderApplication', HistoryPlayback.onApplicationRender);
-		Hooks.on('preUpdateToken', HistoryPlayback.onPreTokenUpdate);
-		Hooks.on('createChatMessage', HistoryPlayback.onCreateChatMessage);
-		Hooks.on('createToken', HistoryPlayback.onTokenCreate);
-		Hooks.on('preDeleteToken', HistoryPlayback.onPreTokenDelete);
-		
+	static async renderControlPanel() {		
 		let skipBackButton = `<div id="history-skip-back" class="history-control" title="Skip Back History" data-tool="skipback"><i class="fas fa-caret-left"></i><i class="fas fa-caret-left"></i></div>`;
 		let stepBackButton = `<div id="history-step-back" class="history-control" title="Step Back History" data-tool="stepback"><i class="fas fa-caret-left"></i></div>`;
 		let stepForwardButton = `<div id="history-step-forward" class="history-control" title="Step Back Forward" data-tool="stepforward"><i class="fas fa-caret-right"></i></div>`;
@@ -215,8 +212,16 @@ class HistoryPlayback {
 		});
 	}
 	
+	//
+	// Callbacks
+	//
+	
+	static async onAppReady() {
+		HistoryPlayback.onEnableHistorySettingChange(game.settings.get('history-playback', 'enabled'));
+	}
+	
 	static async onApplicationRender(sceneNavigation, html, data) {
-		var lastUserTime = await HistoryPlayback.getUserCurrentTime(game.user, game.scenes.viewed)
+		var lastUserTime = await HistoryPlayback.getUserCurrentTime(game.user, game.scenes.viewed);
 		HistoryPlayback.rewindToTime(lastUserTime);
 	}
 	
@@ -359,6 +364,10 @@ class HistoryPlayback {
 		await HistoryPlayback.setHistoryObject(scene, historyObject);
 	}
 
+	//
+	// History Parsing
+	//
+
 	static async parseHistoryObject(curHistory, backwards = true, supressAnimations = false) {
 		for (var i = 0; i < curHistory.length; i++) {
 			let createDummyToken = ( curHistory[i]["type"] == "tokenDelete" && backwards ) || ( curHistory[i]["type"] == "tokenCreate" && !backwards );
@@ -446,6 +455,10 @@ class HistoryPlayback {
 			}
 		}
 	}
+	
+	//
+	// History manipluation
+	//
 	
 	static async rewindToTime(targetTime) {
 		const curUser = game.user;
@@ -555,13 +568,27 @@ class HistoryPlayback {
 		}
 	}
 	
-	static modifyClassOnChildren(classToAdd, item, removeClass = false) {
-		removeClass ? item.removeClass(classToAdd) : item.addClass(classToAdd);
-		var children = item.children();
-		if (children.length > 0) {
-			children.each(function () {
-				HistoryPlayback.modifyClassOnChildren(classToAdd, $(this), removeClass);
-			});
+	//
+	// Button/onChange callbacks
+	//
+	
+	static async onEnableHistorySettingChange(newValue) {
+		if (newValue) {
+			Hooks.on('renderApplication', HistoryPlayback.onApplicationRender);
+			Hooks.on('preUpdateScene', HistoryPlayback.onPreSceneUpdate); 
+			Hooks.on('preUpdateToken', HistoryPlayback.onPreTokenUpdate);
+			Hooks.on('createChatMessage', HistoryPlayback.onCreateChatMessage);
+			Hooks.on('createToken', HistoryPlayback.onTokenCreate);
+			Hooks.on('preDeleteToken', HistoryPlayback.onPreTokenDelete);
+			HistoryPlayback.renderControlPanel();
+		} else {
+			Hooks.off('renderApplication', HistoryPlayback.onApplicationRender);
+			Hooks.off('preUpdateScene', HistoryPlayback.onPreSceneUpdate); 
+			Hooks.off('preUpdateToken', HistoryPlayback.onPreTokenUpdate);
+			Hooks.off('createChatMessage', HistoryPlayback.onCreateChatMessage);
+			Hooks.off('createToken', HistoryPlayback.onTokenCreate);
+			Hooks.off('preDeleteToken', HistoryPlayback.onPreTokenDelete);
+			$('.history-div').remove();
 		}
 	}
 	
@@ -614,14 +641,40 @@ class HistoryPlayback {
 		}
 	}
 	
+	
+	//
+	// Debug
+	//
+	
 	static async deleteFlagOn(object, flag) {
 		await object.unsetFlag("history-playback", flag);
+	}
+	
+	static modifyClassOnChildren(classToAdd, item, removeClass = false) {
+		removeClass ? item.removeClass(classToAdd) : item.addClass(classToAdd);
+		var children = item.children();
+		if (children.length > 0) {
+			children.each(function () {
+				HistoryPlayback.modifyClassOnChildren(classToAdd, $(this), removeClass);
+			});
+		}
 	}
 }
 
 Hooks.on('ready', HistoryPlayback.onAppReady);
 
 Hooks.once("init", () => {
+	game.settings.register('history-playback', 'enabled', {
+	  name: 'Enable',
+	  hint: 'Allow recording and viewing historical actions.',
+	  scope: 'server',
+	  config: true,
+	  type: Boolean,
+	  default: true,
+	  onChange: async function(value) {
+		await HistoryPlayback.onEnableHistorySettingChange(value);
+	  }
+	});
 	game.settings.register('history-playback', 'viewing-history', {
 	  name: 'Viewing History',
 	  hint: 'The Client is currently viewing a historical game.',
