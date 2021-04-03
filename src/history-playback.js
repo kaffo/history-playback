@@ -575,7 +575,6 @@ class HistoryPlayback {
 	static async onEnableHistorySettingChange(newValue) {
 		if (newValue) {
 			Hooks.on('renderApplication', HistoryPlayback.onApplicationRender);
-			Hooks.on('preUpdateScene', HistoryPlayback.onPreSceneUpdate); 
 			Hooks.on('preUpdateToken', HistoryPlayback.onPreTokenUpdate);
 			Hooks.on('createChatMessage', HistoryPlayback.onCreateChatMessage);
 			Hooks.on('createToken', HistoryPlayback.onTokenCreate);
@@ -583,7 +582,6 @@ class HistoryPlayback {
 			HistoryPlayback.renderControlPanel();
 		} else {
 			Hooks.off('renderApplication', HistoryPlayback.onApplicationRender);
-			Hooks.off('preUpdateScene', HistoryPlayback.onPreSceneUpdate); 
 			Hooks.off('preUpdateToken', HistoryPlayback.onPreTokenUpdate);
 			Hooks.off('createChatMessage', HistoryPlayback.onCreateChatMessage);
 			Hooks.off('createToken', HistoryPlayback.onTokenCreate);
